@@ -22,7 +22,7 @@ export const config = {
     boot:    { tier: 'low',  texture: 'assets/symbols/sym-boot.png',    color: 0x5A4632, label: 'BOOT' },
     shell:   { tier: 'low',  texture: 'assets/symbols/sym-shell.png',   color: 0xB03A2E, label: 'SHEL' },
     wild:    { tier: 'wild', texture: 'assets/symbols/sym-wild.png',    color: 0xFFB347, label: 'WILD' },
-    scatter: { tier: 'scatter', texture: 'assets/symbols/sym-scatter.png', color: 0x101820, label: 'SCAT' },
+    scatter: { tier: 'scatter', texture: 'assets/symbols/sym-scatter.png', color: 0x9AA7B0, label: 'SCAT' },
   },
 
   // Low-tier symbols whose weights the auto-tuner scales by `k`.

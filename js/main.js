@@ -53,7 +53,9 @@ async function boot() {
     const meta = config.symbols[symbolName];
     cell.box.clear();
     cell.box.roundRect(0, 0, CELL, CELL, 8).fill(meta.color);
-    if (highlight) cell.box.stroke({ width: 5, color: 0xE8722C });
+    // Always draw a border so every cell boundary is visible; winning cells
+    // get a thicker ember stroke.
+    cell.box.stroke(highlight ? { width: 5, color: 0xE8722C } : { width: 2, color: 0x1C2A33 });
     cell.label.text = meta.label;
   }
 
