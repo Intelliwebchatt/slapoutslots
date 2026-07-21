@@ -32,9 +32,25 @@
 
     <section id="debug" class="debug" hidden>
       <h2>Debug — the machine shows its math</h2>
-      <pre id="debug-out">enumerating…</pre>
-      <button id="sim-btn" class="btn">Simulate 1M spins</button>
-      <pre id="sim-out"></pre>
+      <pre id="debug-enum">enumerating…</pre>
+
+      <h3>Deterministic simulation</h3>
+      <div class="sim-controls">
+        <label>Spins <select id="sim-size"></select></label>
+        <label>Seed <input id="sim-seed" type="number" step="1" /></label>
+        <button id="sim-start" class="btn">Start</button>
+        <button id="sim-cancel" class="btn" disabled>Cancel</button>
+      </div>
+      <pre id="sim-out">idle</pre>
+
+      <h3>Current raw grid</h3>
+      <pre id="debug-grid">—</pre>
+
+      <h3>Bank state</h3>
+      <pre id="debug-bank">—</pre>
+
+      <h3>Recent ledger</h3>
+      <pre id="debug-ledger">—</pre>
     </section>
 
     <footer>For entertainment only — no purchase, no prizes.</footer>

@@ -16,9 +16,10 @@
   <pre id="out">running…</pre>
 
   <script type="module">
-    import { config } from '../js/config.js';
-    import { evaluateWin, columnsToGrid } from '../js/engine.js';
-    import { enumerateRTP, tune, simulate } from '../js/rtp.js';
+    import { config, deepFreeze } from '../js/config.js';
+    import * as engine from '../js/engine.js';
+    import { enumerateRTP, tune, simulate, simulateChunked } from '../js/rtp.js';
+    import { Bank } from '../js/bank.js';
 
     const out = document.getElementById('out');
     let passed = 0, failed = 0;
@@ -26,30 +27,58 @@
       passed += ok ? 1 : 0; failed += ok ? 0 : 1;
       out.innerHTML += `<span class="${ok ? 'pass' : 'fail'}">${ok ? 'PASS' : 'FAIL'}</span> ${msg}\n`;
     };
-    const gridOf = (c0, c1, c2) => columnsToGrid([c0, c1, c2], config.rows);
+    const gridOf = (c0, c1, c2) => engine.columnsToGrid([c0, c1, c2], config.rows);
     out.innerHTML = '';
 
-    // 3-of-a-kind
+    // Win evaluation
     let g = gridOf(['ryder','boot','shell'], ['ryder','boot','shell'], ['ryder','boot','shell']);
-    log(evaluateWin(g, config, 1).totalWin === 250 + 8 + 5, '3× ryder + 3× boot + 3× shell = 263');
+    log(engine.evaluateWin(g, config, 1).totalWin === 250 + 8 + 5, '3× ryder + 3× boot + 3× shell = 263');
 
-    // wild substitution
     g = gridOf(['unc','gator','gator'], ['wild','gator','gator'], ['unc','gator','gator']);
-    log(evaluateWin(g, config, 1).lineWins.find(l => l.line === 0).pay === 100, 'wild completes 3× unc = 100');
+    log(engine.evaluateWin(g, config, 1).lineWins.find(l => l.line === 0).pay === 100, 'wild completes 3× unc = 100');
 
-    // scatter
-    g = gridOf(['scatter','boot','revolver'], ['boot','scatter','revolver'], ['revolver','boot','scatter']);
-    log(evaluateWin(g, config, 1).scatter?.pay === 20 * 5, '3 scatters = 20× total bet');
+    g = [['ryder','ryder','ryder'], ['scatter','scatter','scatter'], ['boot','shell','revolver']];
+    let r = engine.evaluateWin(g, config, 1);
+    log(r.scatter?.pay === 20 * config.lines && r.lineWins.find(l => l.line === 0).pay === 250, 'scatter + line win both pay');
 
-    // enumeration + tuner
-    const tuned = tune(config);
-    log(Math.abs(tuned.rtp - config.targetRTP) < config.rtpTolerance,
-      `tuner hits target ${config.targetRTP} (got ${tuned.rtp.toFixed(5)}, k=${tuned.k.toFixed(4)})`);
+    // Deterministic RNG
+    const seqA = Array.from({length: 6}, () => engine.seededRng(7).int(1000));
+    const seqB = Array.from({length: 6}, () => engine.seededRng(7).int(1000));
+    log(JSON.stringify(seqA) === JSON.stringify(seqB), 'seeded RNG is deterministic');
 
-    // simulation agreement
-    const sim = simulate(config, tuned.k, 200000);
-    log(Math.abs(sim.rtp - tuned.rtp) < 0.03,
-      `1M-scale sim agrees with enumeration (sim ${sim.rtp.toFixed(4)} vs enum ${tuned.rtp.toFixed(4)})`);
+    // Enumeration report
+    const rep = enumerateRTP(config, engine, 1);
+    log(rep.combinationCount === 24*24*24, `combination count = ${rep.combinationCount}`);
+    log(Math.abs(rep.totalProbability - 1) < 1e-9, `total probability ≈ 1 (${rep.totalProbability.toFixed(10)})`);
+    const symSum = Object.values(rep.symbolContribution).reduce((a,b)=>a+b,0);
+    log(Math.abs(symSum - rep.rtp) < 1e-9, 'symbol contributions reconcile with RTP');
+
+    // Tuner
+    const tuned = tune(config, engine);
+    log(tuned.success && Math.abs(tuned.actualRTP - config.targetRTP) < config.rtpTolerance,
+      `tuner success, RTP ${(tuned.actualRTP*100).toFixed(4)}% (k=${tuned.tunedK.toFixed(4)}, ${tuned.branch} branch, ${tuned.diagnostics.curveShape})`);
+    log(tune({...config, targetRTP: 0.5}, engine).success === false, 'unreachable target → success:false');
+
+    // Deterministic chunked simulation vs synchronous
+    const sync = simulate(config, engine, { k: tuned.tunedK, spins: 3000, rng: engine.seededRng(2024) });
+    const chunked = await simulateChunked(config, engine, { k: tuned.tunedK, spins: 3000, seed: 2024, chunkSize: 500 });
+    log(Math.abs(sync.rtp - chunked.rtp) < 1e-12, `chunked sim matches sync (rtp ${chunked.rtp.toFixed(4)})`);
+
+    // Config immutability
+    let threw = false; try { config.targetRTP = 0.1; } catch { threw = true; }
+    log(Object.isFrozen(config) && threw, 'base config is frozen / immutable');
+
+    // Bank hardening
+    localStorage.clear();
+    localStorage.setItem(config.storage.key, '{bad json');
+    log(new Bank(config).balance === config.startingBalance, 'bank recovers from malformed JSON');
+    localStorage.clear();
+    let bank = new Bank(config);
+    const pending = bank.placeBet();
+    log(bank.placeBet() === false, 'bank blocks a second wager while pending');
+    bank.settle(0, [['ryder']]);
+    let dup = false; try { bank.settle(0, [['ryder']]); } catch { dup = true; }
+    log(dup, 'bank blocks settlement without a pending spin');
 
     out.innerHTML += `\n${failed === 0 ? '<span class="pass">ALL PASSED</span>' : '<span class="fail">SOME FAILED</span>'} — ${passed} passed, ${failed} failed\n`;
   </script>

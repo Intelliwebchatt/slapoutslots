@@ -2,15 +2,21 @@
 // Every tunable number in the game lives here. Nothing else in the codebase
 // should contain a magic number. Pure data + no imports so it can be loaded
 // in a bare browser or in Node without any dependencies.
+//
+// The exported `config` is deeply frozen so the base configuration is
+// immutable at runtime; callers that need a variant spread it into a fresh
+// object (e.g. `{ ...config, targetRTP: 0.85 }`).
 
-export const config = {
+const rawConfig = {
   // ── Layout ────────────────────────────────────────────────────────────
   rows: 3,
   reelCount: 3,
   lines: 5,
 
-  // ── Symbol registry: name → { tier, texture, color } ─────────────────────
+  // ── Symbol registry: name → { tier, texture, color, label } ──────────────
   // `color` is the Phase 1 placeholder fill; `texture` is the Phase 2 art path.
+  // Every placeholder color must stay distinct from the canvas background
+  // (see render.background) so no cell ever looks blank.
   symbols: {
     ryder:   { tier: 'high', texture: 'assets/symbols/sym-ryder.png',   color: 0xE8722C, label: 'RYD' },
     unc:     { tier: 'high', texture: 'assets/symbols/sym-unc.png',     color: 0xD9CBB0, label: 'UNC' },
@@ -29,7 +35,7 @@ export const config = {
   lowTierSymbols: ['revolver', 'boot', 'shell'],
 
   // ── Per-reel strips: array of { symbol, weight } base weights ────────────
-  // Each reel is an independent weighted strip. A stop shows 3 consecutive
+  // Each reel is an independent weighted strip. A stop shows `rows` consecutive
   // strip symbols in the window. These are "shape" — the tuner corrects RTP.
   reels: [
     [
@@ -109,15 +115,63 @@ export const config = {
   addPointsAmount: 1000,
   maxLedger: 50,
 
-  // ── RTP ──────────────────────────────────────────────────────────────────
+  // ── RTP target ─────────────────────────────────────────────────────────
   targetRTP: 0.94,
   rtpTolerance: 0.001,
-  tunerIterations: 40,
 
-  // ── Presentation (used by reels.js / fx.js in later phases) ───────────────
+  // ── Tuner ────────────────────────────────────────────────────────────────
+  // The tuner scales low-tier weights by k. RTP(k) is U-shaped, so we scan a
+  // log-spaced grid, detect every target crossing, and (by default) pick the
+  // first crossing on the decreasing branch.
+  tuner: {
+    kMin: 1e-3,
+    kMax: 50,
+    scanSteps: 240,
+    maxBisectIterations: 60,
+    preferBranch: 'decreasing', // 'decreasing' | 'increasing'
+  },
+
+  // ── Simulation (empirical confirmation of the enumeration) ───────────────
+  simulation: {
+    sizes: [10000, 100000, 1000000],
+    defaultSize: 100000,
+    defaultSeed: 12345,
+    chunkSize: 20000, // spins per async chunk (yields to the event loop between)
+  },
+
+  // ── Presentation (placeholder Pixi grid) ─────────────────────────────────
+  render: {
+    cell: 120,
+    gap: 8,
+    pad: 10,
+    revealDelayMs: 120,
+    background: 0x0a0f14,
+    cellBorder: 0x1C2A33,
+    winBorder: 0xE8722C,
+    labelColor: 0x101820,
+  },
+
+  // ── Storage ──────────────────────────────────────────────────────────────
+  storage: {
+    key: 'slapout.state',
+    schemaVersion: 1,
+  },
+
+  // ── Cabinet & timings (used by reels.js / fx.js in later phases) ─────────
   cabinet: { windowX: 350, windowY: 150, windowSize: 900 },
   timings: { spinUp: 250, reelStop: 900, reelStagger: 350, anticipation: 1500 },
   volumes: { bed: -18, master: 0 },
 };
+
+// Recursively freeze so the base config is immutable.
+export function deepFreeze(obj) {
+  if (obj && typeof obj === 'object' && !Object.isFrozen(obj)) {
+    Object.freeze(obj);
+    for (const key of Object.keys(obj)) deepFreeze(obj[key]);
+  }
+  return obj;
+}
+
+export const config = deepFreeze(rawConfig);
 
 export default config;

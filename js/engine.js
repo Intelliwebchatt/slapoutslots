@@ -1,41 +1,73 @@
 // engine.js — RNG, spin resolution, win evaluation.
 // PURE VANILLA: imports nothing. Runs in a bare browser console or Node.
-// Uses Web Crypto (crypto.getRandomValues), available in browsers and Node 18+.
+//
+// Randomness is injectable. Production uses crypto.getRandomValues with
+// rejection sampling; tests/simulations can inject a seeded PRNG so the same
+// seed reproduces the same spin sequence. Math.random() is never used.
 
-const cryptoObj = (typeof globalThis !== 'undefined' && globalThis.crypto) ? globalThis.crypto : null;
+// ── RNG sources ─────────────────────────────────────────────────────────
+// A "source" is a function returning an unbiased uint32 in [0, 2^32).
 
-// Cryptographically-fair integer in [0, max) via rejection sampling.
-export function secureRandomInt(max) {
-  if (max <= 0) throw new Error('secureRandomInt: max must be > 0');
-  if (!cryptoObj || !cryptoObj.getRandomValues) {
+// Crypto source (production). Throws rather than falling back to Math.random.
+export function cryptoSource() {
+  const c = (typeof globalThis !== 'undefined') ? globalThis.crypto : null;
+  if (!c || !c.getRandomValues) {
     throw new Error('Web Crypto unavailable — refusing to fall back to Math.random()');
   }
-  const uint32 = new Uint32Array(1);
-  const limit = Math.floor(0xFFFFFFFF / max) * max; // largest unbiased multiple
-  let x;
-  do {
-    cryptoObj.getRandomValues(uint32);
-    x = uint32[0];
-  } while (x >= limit);
-  return x % max;
+  const buf = new Uint32Array(1);
+  return () => { c.getRandomValues(buf); return buf[0] >>> 0; };
 }
 
-// Build cumulative weight table for a strip. Returns { cum, total }.
+// Seeded PRNG source (mulberry32). Deterministic given the seed. Uses only
+// integer math (Math.imul) — no Math.random().
+export function seededSource(seed) {
+  let a = (seed >>> 0) || 0x9e3779b9;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return (t ^ (t >>> 14)) >>> 0;
+  };
+}
+
+// Wrap a source into an RNG with int()/float() helpers.
+export function makeRng(source) {
+  const src = source || cryptoSource();
+  return {
+    raw: src,
+    // Unbiased integer in [0, max) via rejection sampling.
+    int(max) {
+      if (!Number.isInteger(max) || max <= 0) throw new Error('rng.int: max must be a positive integer');
+      const limit = Math.floor(0x100000000 / max) * max;
+      let x;
+      do { x = src() >>> 0; } while (x >= limit);
+      return x % max;
+    },
+    // Float in [0, 1) with 32 bits of resolution (supports fractional weights).
+    float() { return (src() >>> 0) / 0x100000000; },
+  };
+}
+
+export function cryptoRng() { return makeRng(cryptoSource()); }
+export function seededRng(seed) { return makeRng(seededSource(seed)); }
+
+// ── Weighted strip selection ──────────────────────────────────────────────
 export function buildCumulative(strip, weightOf) {
   const cum = new Array(strip.length);
   let total = 0;
   for (let i = 0; i < strip.length; i++) {
-    total += weightOf ? weightOf(strip[i], i) : strip[i].weight;
+    const w = weightOf ? weightOf(strip[i], i) : strip[i].weight;
+    total += w;
     cum[i] = total;
   }
   return { cum, total };
 }
 
-// Pick a stop index on a strip, weighted by each stop's weight.
-export function pickStop(strip, weightOf) {
+// Pick a stop index on a strip, weighted by each stop's (possibly fractional)
+// weight. Uses rng.float() so tuned fractional weights select correctly.
+export function pickStop(strip, rng, weightOf) {
   const { cum, total } = buildCumulative(strip, weightOf);
-  const r = secureRandomInt(total);
-  // binary search the cumulative table
+  const r = rng.float() * total;
   let lo = 0, hi = cum.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
@@ -44,30 +76,13 @@ export function pickStop(strip, weightOf) {
   return lo;
 }
 
-// The window shown for a given stop index: 3 consecutive strip symbols (wrap).
-export function windowForStop(strip, stop) {
+// The window shown for a given stop index: `rows` consecutive strip symbols
+// with circular wrapping.
+export function windowForStop(strip, stop, rows) {
   const n = strip.length;
-  return [
-    strip[stop % n].symbol,
-    strip[(stop + 1) % n].symbol,
-    strip[(stop + 2) % n].symbol,
-  ];
-}
-
-// Spin the machine. Returns { stops, columns, grid }.
-//   columns[c] = [row0, row1, row2] symbol names for reel c
-//   grid[r][c] = symbol name at row r, column c
-export function spin(config, weightOf) {
-  const stops = [];
-  const columns = [];
-  for (let c = 0; c < config.reels.length; c++) {
-    const strip = config.reels[c];
-    const wf = weightOf ? (e, i) => weightOf(e, i, c) : undefined;
-    const stop = pickStop(strip, wf);
-    stops.push(stop);
-    columns.push(windowForStop(strip, stop));
-  }
-  return { stops, columns, grid: columnsToGrid(columns, config.rows) };
+  const out = new Array(rows);
+  for (let r = 0; r < rows; r++) out[r] = strip[(stop + r) % n].symbol;
+  return out;
 }
 
 export function columnsToGrid(columns, rows) {
@@ -80,6 +95,21 @@ export function columnsToGrid(columns, rows) {
   return grid;
 }
 
+// Spin the machine with an injected rng. Returns { stops, columns, grid }.
+export function spin(config, rng, weightOf) {
+  const stops = [];
+  const columns = [];
+  for (let c = 0; c < config.reels.length; c++) {
+    const strip = config.reels[c];
+    const wf = weightOf ? (e, i) => weightOf(e, i, c) : undefined;
+    const stop = pickStop(strip, rng, wf);
+    stops.push(stop);
+    columns.push(windowForStop(strip, stop, config.rows));
+  }
+  return { stops, columns, grid: columnsToGrid(columns, config.rows) };
+}
+
+// ── Win evaluation ─────────────────────────────────────────────────────────
 const isWild = (s) => s === 'wild';
 const isScatter = (s) => s === 'scatter';
 
@@ -106,16 +136,12 @@ export function evaluateLine(lineSymbols, paytable, lineBet) {
   }
 
   const pays = paytable[base] || {};
-  if (count >= 3 && pays[3] != null) {
-    return { symbol: base, count: 3, pay: pays[3] * lineBet };
-  }
-  if (count >= 2 && pays[2] != null) {
-    return { symbol: base, count: 2, pay: pays[2] * lineBet };
-  }
+  if (count >= 3 && pays[3] != null) return { symbol: base, count: 3, pay: pays[3] * lineBet };
+  if (count >= 2 && pays[2] != null) return { symbol: base, count: 2, pay: pays[2] * lineBet };
   return null;
 }
 
-// Evaluate a full spin grid. Returns { totalWin, lineWins, scatter }.
+// Evaluate a full spin grid. Returns { totalWin, lineWins, scatter, totalBet }.
 export function evaluateWin(grid, config, lineBet) {
   const { paytable, paylines, lines } = config;
   const totalBet = lineBet * lines;
@@ -144,4 +170,8 @@ export function evaluateWin(grid, config, lineBet) {
   return { totalWin, lineWins, scatter, totalBet };
 }
 
-export default { secureRandomInt, buildCumulative, pickStop, windowForStop, spin, columnsToGrid, evaluateLine, evaluateWin };
+export default {
+  cryptoSource, seededSource, makeRng, cryptoRng, seededRng,
+  buildCumulative, pickStop, windowForStop, columnsToGrid, spin,
+  evaluateLine, evaluateWin,
+};

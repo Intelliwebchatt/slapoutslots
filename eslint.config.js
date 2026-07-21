@@ -16,7 +16,9 @@ export default [
         location: 'readonly',
         localStorage: 'readonly',
         setTimeout: 'readonly',
+        performance: 'readonly',
         URLSearchParams: 'readonly',
+        URL: 'readonly',
         console: 'readonly',
         PIXI: 'readonly',
         // Shared
