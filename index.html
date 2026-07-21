@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SLAPOUT GOLD</title>
+  <link rel="stylesheet" href="css/slots.css" />
+  <!-- Pinned CDN deps (no build step). Phase 1 uses only PixiJS. -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.6.6/dist/pixi.min.js"></script>
+</head>
+<body>
+  <div id="loading">Loading SLAPOUT GOLD…</div>
+
+  <main id="app" hidden>
+    <header class="marquee"><h1>SLAPOUT GOLD</h1></header>
+
+    <div id="stage-wrap"><div id="stage"></div></div>
+
+    <section class="meters">
+      <div class="meter"><span class="meter-label">BALANCE</span><span id="balance" class="meter-value">0</span></div>
+      <div class="meter"><span class="meter-label">BET</span><span id="bet" class="meter-value">0</span></div>
+      <div class="meter"><span class="meter-label">WIN</span><span id="win" class="meter-value">0</span></div>
+    </section>
+
+    <section class="controls">
+      <button id="bet-down" class="btn">BET −</button>
+      <button id="bet-up" class="btn">BET +</button>
+      <button id="max-bet" class="btn">MAX BET</button>
+      <button id="spin" class="btn btn-spin">SPIN</button>
+      <button id="add-points" class="btn">+ POINTS</button>
+    </section>
+
+    <section id="debug" class="debug" hidden>
+      <h2>Debug — the machine shows its math</h2>
+      <pre id="debug-out">enumerating…</pre>
+      <button id="sim-btn" class="btn">Simulate 1M spins</button>
+      <pre id="sim-out"></pre>
+    </section>
+
+    <footer>For entertainment only — no purchase, no prizes.</footer>
+  </main>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

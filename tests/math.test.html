@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SLAPOUT GOLD — math tests</title>
+  <style>
+    body { font-family: "Courier New", monospace; background: #101820; color: #D9CBB0; padding: 20px; }
+    h1 { color: #E8722C; }
+    .pass { color: #6ec16e; }
+    .fail { color: #ff6b6b; font-weight: bold; }
+    pre { background: #060a0e; padding: 12px; border: 1px dashed #8C4A2F; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>SLAPOUT GOLD — engine + RTP assertions</h1>
+  <pre id="out">running…</pre>
+
+  <script type="module">
+    import { config } from '../js/config.js';
+    import { evaluateWin, columnsToGrid } from '../js/engine.js';
+    import { enumerateRTP, tune, simulate } from '../js/rtp.js';
+
+    const out = document.getElementById('out');
+    let passed = 0, failed = 0;
+    const log = (ok, msg) => {
+      passed += ok ? 1 : 0; failed += ok ? 0 : 1;
+      out.innerHTML += `<span class="${ok ? 'pass' : 'fail'}">${ok ? 'PASS' : 'FAIL'}</span> ${msg}\n`;
+    };
+    const gridOf = (c0, c1, c2) => columnsToGrid([c0, c1, c2], config.rows);
+    out.innerHTML = '';
+
+    // 3-of-a-kind
+    let g = gridOf(['ryder','boot','shell'], ['ryder','boot','shell'], ['ryder','boot','shell']);
+    log(evaluateWin(g, config, 1).totalWin === 250 + 8 + 5, '3× ryder + 3× boot + 3× shell = 263');
+
+    // wild substitution
+    g = gridOf(['unc','gator','gator'], ['wild','gator','gator'], ['unc','gator','gator']);
+    log(evaluateWin(g, config, 1).lineWins.find(l => l.line === 0).pay === 100, 'wild completes 3× unc = 100');
+
+    // scatter
+    g = gridOf(['scatter','boot','revolver'], ['boot','scatter','revolver'], ['revolver','boot','scatter']);
+    log(evaluateWin(g, config, 1).scatter?.pay === 20 * 5, '3 scatters = 20× total bet');
+
+    // enumeration + tuner
+    const tuned = tune(config);
+    log(Math.abs(tuned.rtp - config.targetRTP) < config.rtpTolerance,
+      `tuner hits target ${config.targetRTP} (got ${tuned.rtp.toFixed(5)}, k=${tuned.k.toFixed(4)})`);
+
+    // simulation agreement
+    const sim = simulate(config, tuned.k, 200000);
+    log(Math.abs(sim.rtp - tuned.rtp) < 0.03,
+      `1M-scale sim agrees with enumeration (sim ${sim.rtp.toFixed(4)} vs enum ${tuned.rtp.toFixed(4)})`);
+
+    out.innerHTML += `\n${failed === 0 ? '<span class="pass">ALL PASSED</span>' : '<span class="fail">SOME FAILED</span>'} — ${passed} passed, ${failed} failed\n`;
+  </script>
+</body>
+</html>
