@@ -151,6 +151,12 @@ const rawConfig = {
     labelColor: 0x101820,
   },
 
+  // ── UI gestures ──────────────────────────────────────────────────────────
+  // Hidden debug toggle: long-press the marquee (ms). Normal taps never fire.
+  ui: {
+    longPressMs: 800,
+  },
+
   // ── Storage ──────────────────────────────────────────────────────────────
   storage: {
     key: 'slapout.state',

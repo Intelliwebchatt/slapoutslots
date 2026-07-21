@@ -6,6 +6,7 @@ import { config } from './config.js';
 import * as engine from './engine.js';
 import { tune, makeWeightOf, simulateChunked } from './rtp.js';
 import { Bank } from './bank.js';
+import { buildPaytableModel, muteControlState, bindLongPress } from './ui.js';
 
 const R = config.render;
 const GRID_W = config.reelCount * R.cell + (config.reelCount - 1) * R.gap + R.pad * 2;
@@ -23,6 +24,8 @@ async function boot() {
 
   const bank = new Bank(config);
   let lastGrid = null;
+  let debugReady = false;
+  let debugVisible = new URLSearchParams(location.search).get('debug') === '1';
 
   // ── PixiJS placeholder grid ───────────────────────────────────────────
   const app = new PIXI.Application();
@@ -65,11 +68,20 @@ async function boot() {
     }
   }
 
+  function refreshMuteButton() {
+    const state = muteControlState(bank.mute);
+    const btn = $('mute-btn');
+    btn.textContent = state.label;
+    btn.setAttribute('aria-pressed', state.ariaPressed ? 'true' : 'false');
+    btn.setAttribute('aria-label', state.ariaLabel);
+  }
+
   function refreshMeters(win = 0) {
     $('balance').textContent = bank.balance.toLocaleString();
     $('bet').textContent = bank.totalBet.toLocaleString();
     $('win').textContent = win.toLocaleString();
     $('spin').disabled = !bank.canSpin();
+    refreshMuteButton();
   }
 
   const blankGrid = Array.from({ length: config.rows }, () =>
@@ -124,10 +136,59 @@ async function boot() {
   $('bet-down').addEventListener('click', () => { bank.betDown(); refreshMeters(); updateLiveDebug(); });
   $('max-bet').addEventListener('click', () => { bank.maxBet(); refreshMeters(); updateLiveDebug(); });
   $('add-points').addEventListener('click', () => { bank.addPoints(); refreshMeters(); updateLiveDebug(); });
+  $('mute-btn').addEventListener('click', () => {
+    bank.toggleMute();
+    refreshMuteButton();
+    updateLiveDebug();
+  });
 
-  // ── Debug panel (?debug=1) ──────────────────────────────────────────────
-  const debugOn = new URLSearchParams(location.search).get('debug') === '1';
+  // ── Paytable overlay ────────────────────────────────────────────────────
+  const paytableModel = buildPaytableModel(config);
+  const paytableBody = $('paytable-body');
+  const list = document.createElement('ul');
+  list.className = 'paytable-list';
+  list.setAttribute('aria-label', 'Payout awards');
+  for (const entry of paytableModel.entries) {
+    const li = document.createElement('li');
+    li.className = 'paytable-row';
+    li.innerHTML =
+      `<span class="paytable-combo">${entry.label}</span>` +
+      `<span class="paytable-pays">${entry.pays}</span>`;
+    list.appendChild(li);
+  }
+  const rulesBox = document.createElement('div');
+  rulesBox.className = 'paytable-rules';
+  rulesBox.innerHTML =
+    `<h3>RULES</h3><ul>${paytableModel.rules.map((r) => `<li>${r}</li>`).join('')}</ul>`;
+  paytableBody.append(list, rulesBox);
 
+  let paytableLastFocus = null;
+  function openPaytable() {
+    paytableLastFocus = document.activeElement;
+    $('paytable-overlay').hidden = false;
+    $('paytable-close').focus();
+  }
+  function closePaytable() {
+    $('paytable-overlay').hidden = true;
+    if (paytableLastFocus && typeof paytableLastFocus.focus === 'function') {
+      paytableLastFocus.focus();
+    } else {
+      $('paytable-btn').focus();
+    }
+  }
+  $('paytable-btn').addEventListener('click', openPaytable);
+  $('paytable-close').addEventListener('click', closePaytable);
+  $('paytable-overlay').addEventListener('click', (e) => {
+    if (e.target === $('paytable-overlay')) closePaytable();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('paytable-overlay').hidden) {
+      e.preventDefault();
+      closePaytable();
+    }
+  });
+
+  // ── Debug panel (?debug=1 or marquee long-press) ────────────────────────
   function renderEnumReport() {
     const rep = tuneResult.report;
     const status = tuneResult.success
@@ -158,7 +219,7 @@ async function boot() {
   }
 
   function updateLiveDebug() {
-    if (!debugOn) return;
+    if (!debugVisible) return;
     $('debug-grid').textContent = lastGrid
       ? lastGrid.map((row) => row.map((s) => config.symbols[s].label.padEnd(5)).join(' ')).join('\n')
       : '—';
@@ -171,12 +232,11 @@ async function boot() {
       .join('\n') || '(empty)';
   }
 
-  if (debugOn) {
-    $('debug').hidden = false;
+  function ensureDebugReady() {
+    if (debugReady) return;
+    debugReady = true;
     renderEnumReport();
-    updateLiveDebug();
 
-    // Simulation controls.
     const sizeSel = $('sim-size');
     for (const n of config.simulation.sizes) {
       const opt = document.createElement('option');
@@ -218,6 +278,29 @@ async function boot() {
     });
     $('sim-cancel').addEventListener('click', () => { simCancel = true; });
   }
+
+  function setDebugVisible(on) {
+    debugVisible = !!on;
+    if (debugVisible) {
+      ensureDebugReady();
+      $('debug').hidden = false;
+      updateLiveDebug();
+    } else {
+      $('debug').hidden = true;
+    }
+  }
+
+  function toggleDebug() {
+    setDebugVisible(!debugVisible);
+  }
+
+  // URL `?debug=1` opens the panel for normal players only when requested.
+  // Marquee long-press reveals/hides it without changing the URL.
+  setDebugVisible(debugVisible);
+  bindLongPress($('marquee'), {
+    durationMs: config.ui.longPressMs,
+    onFire: toggleDebug,
+  });
 
   $('loading').hidden = true;
   $('app').hidden = false;

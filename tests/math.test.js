@@ -10,6 +10,7 @@ import { config, deepFreeze } from '../js/config.js';
 import * as engine from '../js/engine.js';
 import { enumerateRTP, tune, simulate, simulateChunked } from '../js/rtp.js';
 import { Bank } from '../js/bank.js';
+import { buildPaytableModel, muteControlState, createLongPress } from '../js/ui.js';
 
 const lineBet = 1;
 const { evaluateWin, columnsToGrid, windowForStop, buildCumulative, pickStop } = engine;
@@ -357,4 +358,88 @@ test('bank resets on an unknown schema version', () => {
   assert.equal(bank.balance, config.startingBalance);
   assert.equal(bank.betIndex, 0);
   assert.equal(bank.mute, false);
+});
+
+// ── Phase 1 UI completeness (paytable / mute / long-press) ─────────────────
+test('paytable model includes every config.paytable award', () => {
+  const model = buildPaytableModel(config);
+  const keys = new Set(model.entries.map((e) => `${e.symbol}:${e.count}`));
+  for (const [symbol, awards] of Object.entries(config.paytable)) {
+    for (const count of Object.keys(awards).map(Number)) {
+      assert.ok(keys.has(`${symbol}:${count}`), `missing ${symbol}×${count}`);
+      const entry = model.entries.find((e) => e.symbol === symbol && e.count === count);
+      assert.equal(entry.multiplier, awards[count]);
+      assert.equal(entry.basis, symbol === 'scatter' ? 'totalBet' : 'lineBet');
+    }
+  }
+});
+
+test('paytable model documents 2-Ryder, Wild, substitution, and Scatter total-bet rules', () => {
+  const { rules, entries } = buildPaytableModel(config);
+  const blob = rules.join(' ').toLowerCase();
+  assert.match(blob, /2\s*×\s*ryder|2 × ryder/);
+  assert.match(blob, /wild substitutes/);
+  assert.match(blob, /except scatter/);
+  assert.match(blob, /total bet/);
+  assert.ok(entries.some((e) => e.symbol === 'ryder' && e.count === 2 && e.multiplier === 3));
+  assert.ok(entries.some((e) => e.symbol === 'wild' && e.count === 3 && e.multiplier === 500));
+  assert.ok(entries.some((e) => e.symbol === 'scatter' && e.basis === 'totalBet' && /total bet/i.test(e.pays)));
+});
+
+test('mute control state reflects ON/OFF and persists through Bank', () => {
+  globalThis.localStorage.clear();
+  const bank = new Bank(config);
+  let ui = muteControlState(bank.mute);
+  assert.equal(ui.label, 'SOUND: ON');
+  assert.equal(ui.ariaPressed, false);
+  bank.toggleMute();
+  ui = muteControlState(bank.mute);
+  assert.equal(ui.label, 'SOUND: OFF');
+  assert.equal(ui.ariaPressed, true);
+  assert.equal(new Bank(config).mute, true);
+  assert.equal(muteControlState(new Bank(config).mute).label, 'SOUND: OFF');
+});
+
+test('marquee long-press fires only after duration (not on short tap)', () => {
+  let now = 0;
+  const timers = new Map();
+  let nextId = 1;
+  let fires = 0;
+  const lp = createLongPress({
+    durationMs: 800,
+    onFire: () => { fires += 1; },
+    now: () => now,
+    setTimer: (fn, ms) => {
+      const id = nextId++;
+      timers.set(id, { fn, at: now + ms });
+      return id;
+    },
+    clearTimer: (id) => { timers.delete(id); },
+  });
+
+  // Short tap: start then end before duration → no fire.
+  lp.start();
+  assert.equal(lp.isArmed, true);
+  now = 200;
+  lp.end();
+  assert.equal(lp.isArmed, false);
+  assert.equal(fires, 0);
+
+  // Long press: advance past duration while armed → fires once.
+  now = 1000;
+  lp.start();
+  const armedId = [...timers.keys()][0];
+  now = 1000 + 800;
+  timers.get(armedId).fn();
+  timers.delete(armedId);
+  assert.equal(fires, 1);
+  assert.equal(lp.didFire, true);
+
+  // Cancel mid-press never fires.
+  now = 2000;
+  lp.start();
+  now = 2400;
+  lp.cancel();
+  assert.equal(lp.isArmed, false);
+  assert.equal(fires, 1);
 });

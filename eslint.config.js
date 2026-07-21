@@ -16,6 +16,7 @@ export default [
         location: 'readonly',
         localStorage: 'readonly',
         setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         performance: 'readonly',
         URLSearchParams: 'readonly',
         URL: 'readonly',

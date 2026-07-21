@@ -20,6 +20,7 @@
     import * as engine from '../js/engine.js';
     import { enumerateRTP, tune, simulate, simulateChunked } from '../js/rtp.js';
     import { Bank } from '../js/bank.js';
+    import { buildPaytableModel, muteControlState, createLongPress } from '../js/ui.js';
 
     const out = document.getElementById('out');
     let passed = 0, failed = 0;
@@ -79,6 +80,42 @@
     bank.settle(0, [['ryder']]);
     let dup = false; try { bank.settle(0, [['ryder']]); } catch { dup = true; }
     log(dup, 'bank blocks settlement without a pending spin');
+
+    // Phase 1 UI completeness
+    const pt = buildPaytableModel(config);
+    const ptKeys = new Set(pt.entries.map(e => `${e.symbol}:${e.count}`));
+    let ptOk = true;
+    for (const [symbol, awards] of Object.entries(config.paytable)) {
+      for (const count of Object.keys(awards).map(Number)) {
+        if (!ptKeys.has(`${symbol}:${count}`)) ptOk = false;
+      }
+    }
+    const rulesBlob = pt.rules.join(' ').toLowerCase();
+    log(ptOk && /wild substitutes/.test(rulesBlob) && /total bet/.test(rulesBlob),
+      `paytable model covers ${pt.entries.length} awards + rules`);
+
+    localStorage.clear();
+    let muteBank = new Bank(config);
+    log(muteControlState(muteBank.mute).label === 'SOUND: ON', 'mute control starts SOUND: ON');
+    muteBank.toggleMute();
+    log(muteControlState(new Bank(config).mute).label === 'SOUND: OFF', 'mute control persists SOUND: OFF');
+
+    let fires = 0;
+    let tnow = 0;
+    const tmap = new Map();
+    let tid = 1;
+    const lp = createLongPress({
+      durationMs: 800,
+      onFire: () => { fires++; },
+      now: () => tnow,
+      setTimer: (fn, ms) => { const id = tid++; tmap.set(id, { fn, at: tnow + ms }); return id; },
+      clearTimer: (id) => tmap.delete(id),
+    });
+    lp.start(); tnow = 100; lp.end();
+    const shortOk = fires === 0;
+    tnow = 1000; lp.start();
+    const id = [...tmap.keys()][0]; tnow = 1800; tmap.get(id).fn(); tmap.delete(id);
+    log(shortOk && fires === 1, 'long-press fires after duration, not on short tap');
 
     out.innerHTML += `\n${failed === 0 ? '<span class="pass">ALL PASSED</span>' : '<span class="fail">SOME FAILED</span>'} — ${passed} passed, ${failed} failed\n`;
   </script>
