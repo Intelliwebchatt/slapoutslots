@@ -1,0 +1,17 @@
+{
+  "name": "slapoutslots",
+  "version": "0.1.0",
+  "description": "SLAPOUT GOLD — a static, no-build PixiJS slot machine with a provably-tuned RTP.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "python3 -m http.server 8000",
+    "start": "python3 -m http.server 8000",
+    "test": "node --test",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "eslint": "^9.13.0"
+  }
+}

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SLAPOUT GOLD</title>
+  <link rel="stylesheet" href="css/slots.css" />
+  <!-- Pinned CDN deps (no build step). Phase 1 uses only PixiJS. -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.6.6/dist/pixi.min.js"></script>
+</head>
+<body>
+  <div id="loading">Loading SLAPOUT GOLD…</div>
+
+  <main id="app" hidden>
+    <header class="marquee" id="marquee" tabindex="0" aria-label="SLAPOUT GOLD marquee">
+      <h1>SLAPOUT GOLD</h1>
+    </header>
+
+    <div id="stage-wrap"><div id="stage"></div></div>
+
+    <section class="meters">
+      <div class="meter"><span class="meter-label">BALANCE</span><span id="balance" class="meter-value">0</span></div>
+      <div class="meter"><span class="meter-label">BET</span><span id="bet" class="meter-value">0</span></div>
+      <div class="meter"><span class="meter-label">WIN</span><span id="win" class="meter-value">0</span></div>
+    </section>
+
+    <section class="controls" aria-label="Game controls">
+      <button id="bet-down" class="btn" type="button">BET −</button>
+      <button id="bet-up" class="btn" type="button">BET +</button>
+      <button id="max-bet" class="btn" type="button">MAX BET</button>
+      <button id="spin" class="btn btn-spin" type="button">SPIN</button>
+      <button id="add-points" class="btn" type="button">+ POINTS</button>
+      <button id="paytable-btn" class="btn" type="button" aria-haspopup="dialog" aria-controls="paytable-overlay">PAYTABLE</button>
+      <button id="mute-btn" class="btn" type="button" aria-pressed="false">SOUND: ON</button>
+    </section>
+
+    <div id="paytable-overlay" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="paytable-title">
+      <div class="overlay-panel" role="document">
+        <header class="overlay-header">
+          <h2 id="paytable-title">PAYTABLE</h2>
+          <button id="paytable-close" class="btn overlay-close" type="button" aria-label="Close paytable">×</button>
+        </header>
+        <div id="paytable-body" class="overlay-body"></div>
+      </div>
+    </div>
+
+    <section id="debug" class="debug" hidden>
+      <h2>Debug — the machine shows its math</h2>
+      <pre id="debug-enum">enumerating…</pre>
+
+      <h3>Deterministic simulation</h3>
+      <div class="sim-controls">
+        <label>Spins <select id="sim-size"></select></label>
+        <label>Seed <input id="sim-seed" type="number" step="1" /></label>
+        <button id="sim-start" class="btn">Start</button>
+        <button id="sim-cancel" class="btn" disabled>Cancel</button>
+      </div>
+      <pre id="sim-out">idle</pre>
+
+      <h3>Current raw grid</h3>
+      <pre id="debug-grid">—</pre>
+
+      <h3>Bank state</h3>
+      <pre id="debug-bank">—</pre>
+
+      <h3>Recent ledger</h3>
+      <pre id="debug-ledger">—</pre>
+    </section>
+
+    <footer>For entertainment only — no purchase, no prizes.</footer>
+  </main>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

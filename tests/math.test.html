@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SLAPOUT GOLD — math tests</title>
+  <style>
+    body { font-family: "Courier New", monospace; background: #101820; color: #D9CBB0; padding: 20px; }
+    h1 { color: #E8722C; }
+    .pass { color: #6ec16e; }
+    .fail { color: #ff6b6b; font-weight: bold; }
+    pre { background: #060a0e; padding: 12px; border: 1px dashed #8C4A2F; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>SLAPOUT GOLD — engine + RTP assertions</h1>
+  <pre id="out">running…</pre>
+
+  <script type="module">
+    import { config, deepFreeze } from '../js/config.js';
+    import * as engine from '../js/engine.js';
+    import { enumerateRTP, tune, simulate, simulateChunked } from '../js/rtp.js';
+    import { Bank } from '../js/bank.js';
+    import { buildPaytableModel, muteControlState, createLongPress } from '../js/ui.js';
+
+    const out = document.getElementById('out');
+    let passed = 0, failed = 0;
+    const log = (ok, msg) => {
+      passed += ok ? 1 : 0; failed += ok ? 0 : 1;
+      out.innerHTML += `<span class="${ok ? 'pass' : 'fail'}">${ok ? 'PASS' : 'FAIL'}</span> ${msg}\n`;
+    };
+    const gridOf = (c0, c1, c2) => engine.columnsToGrid([c0, c1, c2], config.rows);
+    out.innerHTML = '';
+
+    // Win evaluation
+    let g = gridOf(['ryder','boot','shell'], ['ryder','boot','shell'], ['ryder','boot','shell']);
+    log(engine.evaluateWin(g, config, 1).totalWin === 250 + 8 + 5, '3× ryder + 3× boot + 3× shell = 263');
+
+    g = gridOf(['unc','gator','gator'], ['wild','gator','gator'], ['unc','gator','gator']);
+    log(engine.evaluateWin(g, config, 1).lineWins.find(l => l.line === 0).pay === 100, 'wild completes 3× unc = 100');
+
+    g = [['ryder','ryder','ryder'], ['scatter','scatter','scatter'], ['boot','shell','revolver']];
+    let r = engine.evaluateWin(g, config, 1);
+    log(r.scatter?.pay === 20 * config.lines && r.lineWins.find(l => l.line === 0).pay === 250, 'scatter + line win both pay');
+
+    // Deterministic RNG
+    const seqA = Array.from({length: 6}, () => engine.seededRng(7).int(1000));
+    const seqB = Array.from({length: 6}, () => engine.seededRng(7).int(1000));
+    log(JSON.stringify(seqA) === JSON.stringify(seqB), 'seeded RNG is deterministic');
+
+    // Enumeration report
+    const rep = enumerateRTP(config, engine, 1);
+    log(rep.combinationCount === 24*24*24, `combination count = ${rep.combinationCount}`);
+    log(Math.abs(rep.totalProbability - 1) < 1e-9, `total probability ≈ 1 (${rep.totalProbability.toFixed(10)})`);
+    const symSum = Object.values(rep.symbolContribution).reduce((a,b)=>a+b,0);
+    log(Math.abs(symSum - rep.rtp) < 1e-9, 'symbol contributions reconcile with RTP');
+
+    // Tuner
+    const tuned = tune(config, engine);
+    log(tuned.success && Math.abs(tuned.actualRTP - config.targetRTP) < config.rtpTolerance,
+      `tuner success, RTP ${(tuned.actualRTP*100).toFixed(4)}% (k=${tuned.tunedK.toFixed(4)}, ${tuned.branch} branch, ${tuned.diagnostics.curveShape})`);
+    log(tune({...config, targetRTP: 0.5}, engine).success === false, 'unreachable target → success:false');
+
+    // Deterministic chunked simulation vs synchronous
+    const sync = simulate(config, engine, { k: tuned.tunedK, spins: 3000, rng: engine.seededRng(2024) });
+    const chunked = await simulateChunked(config, engine, { k: tuned.tunedK, spins: 3000, seed: 2024, chunkSize: 500 });
+    log(Math.abs(sync.rtp - chunked.rtp) < 1e-12, `chunked sim matches sync (rtp ${chunked.rtp.toFixed(4)})`);
+
+    // Config immutability
+    let threw = false; try { config.targetRTP = 0.1; } catch { threw = true; }
+    log(Object.isFrozen(config) && threw, 'base config is frozen / immutable');
+
+    // Bank hardening
+    localStorage.clear();
+    localStorage.setItem(config.storage.key, '{bad json');
+    log(new Bank(config).balance === config.startingBalance, 'bank recovers from malformed JSON');
+    localStorage.clear();
+    let bank = new Bank(config);
+    const pending = bank.placeBet();
+    log(bank.placeBet() === false, 'bank blocks a second wager while pending');
+    bank.settle(0, [['ryder']]);
+    let dup = false; try { bank.settle(0, [['ryder']]); } catch { dup = true; }
+    log(dup, 'bank blocks settlement without a pending spin');
+
+    // Phase 1 UI completeness
+    const pt = buildPaytableModel(config);
+    const ptKeys = new Set(pt.entries.map(e => `${e.symbol}:${e.count}`));
+    let ptOk = true;
+    for (const [symbol, awards] of Object.entries(config.paytable)) {
+      for (const count of Object.keys(awards).map(Number)) {
+        if (!ptKeys.has(`${symbol}:${count}`)) ptOk = false;
+      }
+    }
+    const rulesBlob = pt.rules.join(' ');
+    const baseRulesOk = ptOk
+      && rulesBlob.includes(`awards ${config.paytable.ryder[2]} × line bet`)
+      && rulesBlob.includes(`awards ${config.paytable.wild[3]} × line bet`)
+      && rulesBlob.includes(`pays ${config.paytable.scatter[3]} × total bet`)
+      && /Wild substitutes for any symbol except Scatter/.test(rulesBlob);
+    log(baseRulesOk, `paytable model covers ${pt.entries.length} awards + config-driven rules`);
+
+    const altPt = buildPaytableModel({
+      ...config,
+      paytable: {
+        ...config.paytable,
+        ryder: { ...config.paytable.ryder, 2: 9 },
+        wild: { ...config.paytable.wild, 3: 777 },
+        scatter: { ...config.paytable.scatter, 3: 42 },
+      },
+    });
+    const altRules = altPt.rules.join('\n');
+    log(
+      /awards 9 × line bet/.test(altRules)
+        && /awards 777 × line bet/.test(altRules)
+        && /pays 42 × total bet/.test(altRules)
+        && /Wild substitutes for any symbol except Scatter/.test(altRules)
+        && !altRules.includes(`awards ${config.paytable.ryder[2]} × line bet`)
+        && !altRules.includes(`awards ${config.paytable.wild[3]} × line bet`)
+        && !altRules.includes(`pays ${config.paytable.scatter[3]} × total bet`),
+      'paytable rules follow copied-config Ryder/Wild/Scatter payout changes');
+
+    localStorage.clear();
+    let muteBank = new Bank(config);
+    log(muteControlState(muteBank.mute).label === 'SOUND: ON', 'mute control starts SOUND: ON');
+    muteBank.toggleMute();
+    log(muteControlState(new Bank(config).mute).label === 'SOUND: OFF', 'mute control persists SOUND: OFF');
+
+    let fires = 0;
+    let tnow = 0;
+    const tmap = new Map();
+    let tid = 1;
+    const lp = createLongPress({
+      durationMs: 800,
+      onFire: () => { fires++; },
+      now: () => tnow,
+      setTimer: (fn, ms) => { const id = tid++; tmap.set(id, { fn, at: tnow + ms }); return id; },
+      clearTimer: (id) => tmap.delete(id),
+    });
+    lp.start(); tnow = 100; lp.end();
+    const shortOk = fires === 0;
+    tnow = 1000; lp.start();
+    const id = [...tmap.keys()][0]; tnow = 1800; tmap.get(id).fn(); tmap.delete(id);
+    log(shortOk && fires === 1, 'long-press fires after duration, not on short tap');
+
+    out.innerHTML += `\n${failed === 0 ? '<span class="pass">ALL PASSED</span>' : '<span class="fail">SOME FAILED</span>'} — ${passed} passed, ${failed} failed\n`;
+  </script>
+</body>
+</html>
