@@ -376,14 +376,39 @@ test('paytable model includes every config.paytable award', () => {
 
 test('paytable model documents 2-Ryder, Wild, substitution, and Scatter total-bet rules', () => {
   const { rules, entries } = buildPaytableModel(config);
-  const blob = rules.join(' ').toLowerCase();
-  assert.match(blob, /2\s*×\s*ryder|2 × ryder/);
-  assert.match(blob, /wild substitutes/);
-  assert.match(blob, /except scatter/);
-  assert.match(blob, /total bet/);
-  assert.ok(entries.some((e) => e.symbol === 'ryder' && e.count === 2 && e.multiplier === 3));
-  assert.ok(entries.some((e) => e.symbol === 'wild' && e.count === 3 && e.multiplier === 500));
+  const blob = rules.join(' ');
+  const ryderTwo = config.paytable.ryder[2];
+  const wildThree = config.paytable.wild[3];
+  const scatterThree = config.paytable.scatter[3];
+  assert.match(blob, /2 × Ryder/);
+  assert.match(blob, new RegExp(`awards ${ryderTwo} × line bet`));
+  assert.match(blob, new RegExp(`3 × Wild awards ${wildThree} × line bet`));
+  assert.match(blob, /Wild substitutes for any symbol except Scatter/);
+  assert.match(blob, new RegExp(`pays ${scatterThree} × total bet`));
+  assert.ok(entries.some((e) => e.symbol === 'ryder' && e.count === 2 && e.multiplier === ryderTwo));
+  assert.ok(entries.some((e) => e.symbol === 'wild' && e.count === 3 && e.multiplier === wildThree));
   assert.ok(entries.some((e) => e.symbol === 'scatter' && e.basis === 'totalBet' && /total bet/i.test(e.pays)));
+});
+
+test('paytable rules regenerate from a copied config when Ryder/Wild/Scatter payouts change', () => {
+  const alt = {
+    ...config,
+    paytable: {
+      ...config.paytable,
+      ryder: { ...config.paytable.ryder, 2: 9 },
+      wild: { ...config.paytable.wild, 3: 777 },
+      scatter: { ...config.paytable.scatter, 3: 42 },
+    },
+  };
+  const rules = buildPaytableModel(alt).rules.join('\n');
+  assert.match(rules, /2 × Ryder \(left-aligned on a payline\) awards 9 × line bet\./);
+  assert.match(rules, /3 × Wild awards 777 × line bet\./);
+  assert.match(rules, /3 × Scatter anywhere on the grid pays 42 × total bet \(not line bet\)\./);
+  assert.match(rules, /Wild substitutes for any symbol except Scatter\./);
+  // Base-config numerals must not linger in the generated rules.
+  assert.equal(rules.includes(`awards ${config.paytable.ryder[2]} × line bet`), false);
+  assert.equal(rules.includes(`awards ${config.paytable.wild[3]} × line bet`), false);
+  assert.equal(rules.includes(`pays ${config.paytable.scatter[3]} × total bet`), false);
 });
 
 test('mute control state reflects ON/OFF and persists through Bank', () => {

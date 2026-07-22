@@ -49,11 +49,16 @@ export function buildPaytableModel(config) {
     }
   }
 
+  // Rule multipliers come from config.paytable so the overlay cannot go stale
+  // when awards are retuned. Wild-substitution wording is structural, not numeric.
+  const ryderTwo = config.paytable.ryder[2];
+  const wildThree = config.paytable.wild[3];
+  const scatterThree = config.paytable.scatter[3];
   const rules = [
-    '2 × Ryder (left-aligned on a payline) awards 3 × line bet.',
-    '3 × Wild awards 500 × line bet.',
+    `2 × Ryder (left-aligned on a payline) awards ${ryderTwo} × line bet.`,
+    `3 × Wild awards ${wildThree} × line bet.`,
     'Wild substitutes for any symbol except Scatter.',
-    '3 × Scatter anywhere on the grid pays 20 × total bet (not line bet).',
+    `3 × Scatter anywhere on the grid pays ${scatterThree} × total bet (not line bet).`,
   ];
 
   return { entries, rules, title: 'PAYTABLE' };

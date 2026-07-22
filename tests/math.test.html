@@ -90,9 +90,33 @@
         if (!ptKeys.has(`${symbol}:${count}`)) ptOk = false;
       }
     }
-    const rulesBlob = pt.rules.join(' ').toLowerCase();
-    log(ptOk && /wild substitutes/.test(rulesBlob) && /total bet/.test(rulesBlob),
-      `paytable model covers ${pt.entries.length} awards + rules`);
+    const rulesBlob = pt.rules.join(' ');
+    const baseRulesOk = ptOk
+      && rulesBlob.includes(`awards ${config.paytable.ryder[2]} × line bet`)
+      && rulesBlob.includes(`awards ${config.paytable.wild[3]} × line bet`)
+      && rulesBlob.includes(`pays ${config.paytable.scatter[3]} × total bet`)
+      && /Wild substitutes for any symbol except Scatter/.test(rulesBlob);
+    log(baseRulesOk, `paytable model covers ${pt.entries.length} awards + config-driven rules`);
+
+    const altPt = buildPaytableModel({
+      ...config,
+      paytable: {
+        ...config.paytable,
+        ryder: { ...config.paytable.ryder, 2: 9 },
+        wild: { ...config.paytable.wild, 3: 777 },
+        scatter: { ...config.paytable.scatter, 3: 42 },
+      },
+    });
+    const altRules = altPt.rules.join('\n');
+    log(
+      /awards 9 × line bet/.test(altRules)
+        && /awards 777 × line bet/.test(altRules)
+        && /pays 42 × total bet/.test(altRules)
+        && /Wild substitutes for any symbol except Scatter/.test(altRules)
+        && !altRules.includes(`awards ${config.paytable.ryder[2]} × line bet`)
+        && !altRules.includes(`awards ${config.paytable.wild[3]} × line bet`)
+        && !altRules.includes(`pays ${config.paytable.scatter[3]} × total bet`),
+      'paytable rules follow copied-config Ryder/Wild/Scatter payout changes');
 
     localStorage.clear();
     let muteBank = new Bank(config);
